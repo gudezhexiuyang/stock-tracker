@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股票观察池</title>
+<style>
+  :root {
+    --bg: #0d0f14; --surface: #13161d; --surface2: #1a1e28; --border: #252a38;
+    --accent: #c8a96e; --up: #4fc97e; --down: #e05c5c; --neutral: #c8a96e;
+    --text: #e8e4d9; --muted: #6b7280;
+    --font-sans: "PingFang SC", "Microsoft YaHei", "微软雅黑", "Hiragino Sans GB", sans-serif;
+    --font-mono: "Menlo", "Consolas", "Courier New", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-sans); min-height: 100vh; padding: 32px 24px; }
+  .grain { position: fixed; inset: 0; pointer-events: none; z-index: 100; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E"); opacity: 0.4; }
+  .info-bar { max-width: 1100px; margin: 0 auto 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; display: flex; align-items: center; gap: 10px; font-size: 0.8rem; color: var(--muted); font-family: var(--font-mono); animation: fadeUp 0.5s ease both; }
+  .dot-ok { width: 7px; height: 7px; border-radius: 50%; background: var(--up); flex-shrink: 0; }
+  header { max-width: 1100px; margin: 0 auto 40px; display: flex; align-items: flex-end; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 24px; animation: fadeUp 0.6s ease both; }
+  h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; color: var(--accent); }
+  .subtitle { font-size: 0.85rem; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); }
+  .date-badge { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); border: 1px solid var(--border); padding: 6px 12px; border-radius: 4px; }
+  .controls { max-width: 1100px; margin: 0 auto 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; animation: fadeUp 0.6s 0.1s ease both; }
+  .filter-btn { padding: 8px 16px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: 0.85rem; transition: all 0.2s; }
+  .filter-btn:hover, .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(200,169,110,0.08); }
+  .add-btn { margin-left: auto; padding: 8px 20px; border-radius: 4px; background: var(--accent); color: #0d0f14; border: none; font-family: var(--font-sans); font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
+  .add-btn:hover { opacity: 0.85; }
+  .tool-btn { padding: 8px 14px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-family: var(--font-sans); font-size: 0.85rem; transition: all 0.2s; }
+  .tool-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .stats-bar { max-width: 1100px; margin: 0 auto 28px; display: flex; gap: 16px; flex-wrap: wrap; animation: fadeUp 0.6s 0.05s ease both; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 14px 20px; min-width: 110px; }
+  .stat-label { font-size: 0.65rem; color: var(--muted); font-family: var(--font-mono); text-transform: uppercase; }
+  .stat-value { font-size: 1.4rem; font-weight: 700; margin-top: 4px; font-family: var(--font-mono); }
+  .grid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; transition: border-color 0.2s, transform 0.2s; animation: fadeUp 0.5s ease both; cursor: pointer; position: relative; overflow: hidden; }
+  .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--card-accent, var(--neutral)); }
+  .card:hover { border-color: var(--card-accent, var(--neutral)); transform: translateY(-2px); }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+  .stock-name { font-size: 1.05rem; font-weight: 700; }
+  .stock-code { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 3px; font-family: var(--font-mono); font-weight: 600; }
+  .badge-strong { background: rgba(79,201,126,0.15); color: var(--up); }
+  .badge-watch { background: rgba(200,169,110,0.15); color: var(--neutral); }
+  .badge-wait { background: rgba(107,114,128,0.15); color: var(--muted); }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .meta-row { display: flex; gap: 16px; margin-bottom: 12px; }
+  .meta-item { flex: 1; }
+  .meta-label { font-size: 0.7rem; color: var(--muted); margin-bottom: 3px; font-family: var(--font-mono); text-transform: uppercase; }
+  .meta-value { font-size: 0.9rem; font-family: var(--font-mono); }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .reason { font-size: 0.82rem; color: var(--muted); line-height: 1.6; border-left: 2px solid var(--border); padding-left: 10px; margin: 12px 0; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .tag { font-size: 0.68rem; padding: 3px 8px; border-radius: 3px; border: 1px solid var(--border); color: var(--muted); font-family: var(--font-mono); }
+  .card-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+  .update-time { font-size: 0.68rem; color: var(--muted); font-family: var(--font-mono); }
+  .score { font-size: 0.75rem; font-family: var(--font-mono); color: var(--accent); }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 28px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; }
+  .modal h2 { font-size: 1.1rem; margin-bottom: 20px; color: var(--accent); }
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 6px; font-family: var(--font-mono); text-transform: uppercase; }
+  input, textarea, select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; color: var(--text); font-family: var(--font-sans); font-size: 0.88rem; outline: none; transition: border-color 0.2s; }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 80px; }
+  select option { background: var(--surface2); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; align-items: center; }
+  .btn-cancel { padding: 9px 18px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); }
+  .btn-save { padding: 9px 22px; border-radius: 5px; border: none; background: var(--accent); color: #0d0f14; font-weight: 700; cursor: pointer; font-family: var(--font-sans); }
+  .btn-delete { padding: 9px 16px; border-radius: 5px; border: 1px solid var(--down); background: transparent; color: var(--down); cursor: pointer; font-family: var(--font-sans); margin-right: auto; }
+  /* 导出弹窗 */
+  .export-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 300; align-items: center; justify-content: center; padding: 20px; }
+  .export-modal.open { display: flex; }
+  .export-box { background: var(--surface2); border: 1px solid var(--accent); border-radius: 10px; padding: 24px; width: 100%; max-width: 560px; }
+  .export-box h2 { color: var(--accent); font-size: 1rem; margin-bottom: 12px; }
+  .export-box p { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; line-height: 1.6; }
+  .export-text { width: 100%; height: 160px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 10px; color: var(--text); font-family: var(--font-mono); font-size: 0.72rem; resize: none; outline: none; }
+  .export-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .copy-btn { flex: 1; padding: 10px; border-radius: 5px; border: none; background: var(--accent); color: #0d0f14; font-weight: 700; cursor: pointer; font-family: var(--font-sans); font-size: 0.88rem; }
+  .close-btn { padding: 10px 18px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; font-family: var(--font-sans); }
+  .empty { max-width: 1100px; margin: 60px auto; text-align: center; color: var(--muted); font-size: 0.95rem; line-height: 2; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 18px; font-size: 0.8rem; font-family: var(--font-mono); z-index: 500; color: var(--text); max-width: 340px; line-height: 1.5; }
+  .toast.ok { border-color: var(--up); color: var(--up); }
+  .toast.err { border-color: var(--down); color: var(--down); }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</head>
+<body>
+<div class="grain"></div>
+
+<div class="info-bar">
+  <div class="dot-ok"></div>
+  <span>数据保存在本设备浏览器中 · 可导出后发到手机导入</span>
+</div>
+
+<header>
+  <div>
+    <h1>股票观察池</h1>
+    <div class="subtitle">// 长期跟踪 · 理性分析 · 耐心等待</div>
+  </div>
+  <div class="date-badge" id="dateDisplay"></div>
+</header>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="controls">
+  <button class="filter-btn active" onclick="filterCards('all',this)">全部</button>
+  <button class="filter-btn" onclick="filterCards('strong',this)">强烈关注</button>
+  <button class="filter-btn" onclick="filterCards('watch',this)">观察中</button>
+  <button class="filter-btn" onclick="filterCards('wait',this)">等待机会</button>
+  <button class="add-btn" onclick="openModal()">＋ 添加股票</button>
+  <button class="tool-btn" onclick="showExport()">📤 导出</button>
+  <button class="tool-btn" onclick="document.getElementById('importFile').click()">📥 导入</button>
+  <input type="file" id="importFile" accept=".json,.txt" style="display:none" onchange="importData(event)">
+</div>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="emptyState" style="display:none">还没有股票，点击「添加股票」开始建立你的观察池</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">添加股票</h2>
+    <div class="form-row">
+      <div class="form-group"><label>股票名称</label><input type="text" id="f-name" placeholder="如：宁德时代"></div>
+      <div class="form-group"><label>股票代码</label><input type="text" id="f-code" placeholder="如：300750"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>当前价格</label><input type="text" id="f-price" placeholder="168.50"></div>
+      <div class="form-group"><label>目标价格</label><input type="text" id="f-target" placeholder="220.00"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>今日涨跌</label><input type="text" id="f-change" placeholder="+2.3%"></div>
+      <div class="form-group"><label>关注状态</label>
+        <select id="f-status">
+          <option value="strong">🔥 强烈关注</option>
+          <option value="watch" selected>👀 观察中</option>
+          <option value="wait">⏳ 等待机会</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>所属行业</label><input type="text" id="f-industry" placeholder="新能源"></div>
+      <div class="form-group"><label>潜力评分 1-10</label><input type="number" id="f-score" min="1" max="10" placeholder="8"></div>
+    </div>
+    <div class="form-group"><label>关注理由 / 分析笔记</label><textarea id="f-reason" placeholder="为什么关注？催化剂？风险点？"></textarea></div>
+    <div class="form-group"><label>标签（逗号分隔）</label><input type="text" id="f-tags" placeholder="成长股, 龙头, 低估值"></div>
+    <div class="modal-actions">
+      <button class="btn-delete" id="deleteBtn" onclick="deleteStock()" style="display:none">删除</button>
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-save" onclick="saveStock()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 导出弹窗 -->
+<div class="export-modal" id="exportModal">
+  <div class="export-box">
+    <h2>📤 导出数据</h2>
+    <p>复制下方全部内容 → 发到手机（微信/备忘录均可）→ 手机上打开网页点「📥 导入」→ 粘贴内容即可同步</p>
+    <textarea class="export-text" id="exportText" readonly></textarea>
+    <div class="export-actions">
+      <button class="copy-btn" onclick="copyExport()">复制全部内容</button>
+      <button class="close-btn" onclick="closeExport()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 导入弹窗 -->
+<div class="export-modal" id="importModal">
+  <div class="export-box">
+    <h2>📥 导入数据</h2>
+    <p>将从电脑复制的数据粘贴到下方，然后点击「确认导入」</p>
+    <textarea class="export-text" id="importText" placeholder="粘贴数据到这里..."></textarea>
+    <div class="export-actions">
+      <button class="copy-btn" onclick="confirmImport()">确认导入</button>
+      <button class="close-btn" onclick="closeImport()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'stockPool_v1';
+let stocks = [], editIndex = -1, currentFilter = 'all';
+
+function load() {
+  try { stocks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { stocks = []; }
+  if (stocks.length === 0) {
+    stocks = [
+      { name:'宁德时代', code:'300750', price:'168.50', target:'220.00', change:'+2.3%', status:'strong', industry:'新能源', score:9, reason:'全球动力电池龙头，技术护城河深厚。钠离子电池商业化进展超预期，海外客户持续拓展。', tags:['成长股','龙头','全球化'], date:'2025-02-20' },
+      { name:'贵州茅台', code:'600519', price:'1680.00', target:'1900.00', change:'-0.5%', status:'watch', industry:'消费', score:8, reason:'白酒绝对龙头，品牌护城河无可撼动。等待消费情绪回暖。', tags:['消费','高ROE','现金奶牛'], date:'2025-02-19' },
+      { name:'中际旭创', code:'300308', price:'95.00', target:'130.00', change:'+4.2%', status:'strong', industry:'AI算力', score:9, reason:'AI算力基础设施核心受益标的，800G光模块需求爆发。', tags:['AI','算力','高成长'], date:'2025-02-20' },
+    ];
+    save();
+  }
+}
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(stocks)); }
+
+function render() {
+  const filtered = currentFilter === 'all' ? stocks : stocks.filter(s => s.status === currentFilter);
+  const empty = document.getElementById('emptyState');
+  const grid = document.getElementById('grid');
+  if (!filtered.length) { grid.innerHTML = ''; empty.style.display = 'block'; }
+  else {
+    empty.style.display = 'none';
+    const sm = { strong:['强烈关注','badge-strong','#4fc97e'], watch:['观察中','badge-watch','#c8a96e'], wait:['等待机会','badge-wait','#6b7280'] };
+    grid.innerHTML = filtered.map((s,i) => {
+      const ri = stocks.indexOf(s);
+      const [label,cls,color] = sm[s.status] || sm.watch;
+      const cc = (s.change||'').startsWith('+') ? 'up' : (s.change||'').startsWith('-') ? 'down' : '';
+      const tags = Array.isArray(s.tags) ? s.tags : (s.tags||'').split(',').map(t=>t.trim()).filter(Boolean);
+      return `<div class="card" style="--card-accent:${color};animation-delay:${i*.05}s" onclick="editStock(${ri})">
+        <div class="card-header"><div><div class="stock-name">${s.name}</div><div class="stock-code">${s.code||''} · ${s.industry||''}</div></div><span class="badge ${cls}">${label}</span></div>
+        <div class="meta-row">
+          <div class="meta-item"><div class="meta-label">当前价</div><div class="meta-value">¥${s.price||'—'}</div></div>
+          <div class="meta-item"><div class="meta-label">目标价</div><div class="meta-value" style="color:var(--accent)">¥${s.target||'—'}</div></div>
+          <div class="meta-item"><div class="meta-label">今日</div><div class="meta-value ${cc}">${s.change||'—'}</div></div>
+        </div>
+        <hr class="divider">
+        <div class="reason">${s.reason||'暂无笔记'}</div>
+        ${tags.length?`<div class="tags">${tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>`:''}
+        <div class="card-footer"><span class="update-time">更新 ${s.date||'—'}</span><span class="score">潜力 ${s.score||'—'}/10</span></div>
+      </div>`;
+    }).join('');
+  }
+  const strong=stocks.filter(s=>s.status==='strong').length, watch=stocks.filter(s=>s.status==='watch').length, wait=stocks.filter(s=>s.status==='wait').length;
+  const avg = stocks.length ? (stocks.reduce((a,s)=>a+Number(s.score||0),0)/stocks.length).toFixed(1) : 0;
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-card"><div class="stat-label">总数</div><div class="stat-value">${stocks.length}</div></div>
+    <div class="stat-card"><div class="stat-label">强烈关注</div><div class="stat-value" style="color:var(--up)">${strong}</div></div>
+    <div class="stat-card"><div class="stat-label">观察中</div><div class="stat-value" style="color:var(--neutral)">${watch}</div></div>
+    <div class="stat-card"><div class="stat-label">等待机会</div><div class="stat-value" style="color:var(--muted)">${wait}</div></div>
+    <div class="stat-card"><div class="stat-label">平均评分</div><div class="stat-value" style="color:var(--accent)">${avg}</div></div>`;
+}
+
+// 导出
+function showExport() {
+  document.getElementById('exportText').value = JSON.stringify(stocks);
+  document.getElementById('exportModal').classList.add('open');
+}
+function closeExport() { document.getElementById('exportModal').classList.remove('open'); }
+function copyExport() {
+  const text = document.getElementById('exportText');
+  text.select();
+  text.setSelectionRange(0, 99999);
+  try {
+    navigator.clipboard.writeText(text.value).then(() => showToast('✅ 已复制！发到手机，在手机网页点「导入」粘贴即可', 'ok'));
+  } catch {
+    document.execCommand('copy');
+    showToast('✅ 已复制！发到手机，在手机网页点「导入」粘贴即可', 'ok');
+  }
+}
+
+// 导入（手机端粘贴文字导入）
+function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!Array.isArray(data)) throw new Error();
+      stocks = data; save(); render();
+      showToast('✅ 导入成功，共 ' + stocks.length + ' 只股票', 'ok');
+    } catch { showToast('导入失败，格式不正确', 'err'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// 手机端文字导入
+function showImportModal() {
+  document.getElementById('importText').value = '';
+  document.getElementById('importModal').classList.add('open');
+}
+function closeImport() { document.getElementById('importModal').classList.remove('open'); }
+function confirmImport() {
+  try {
+    const data = JSON.parse(document.getElementById('importText').value.trim());
+    if (!Array.isArray(data)) throw new Error();
+    stocks = data; save(); render();
+    closeImport();
+    showToast('✅ 导入成功，共 ' + stocks.length + ' 只股票', 'ok');
+  } catch { showToast('格式不正确，请重新粘贴', 'err'); }
+}
+
+function openModal(isEdit=false) {
+  document.getElementById('modalTitle').textContent = isEdit ? '编辑股票' : '添加股票';
+  document.getElementById('deleteBtn').style.display = isEdit ? 'block' : 'none';
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  editIndex = -1;
+  ['name','code','price','target','change','industry','score','reason','tags'].forEach(f => document.getElementById('f-'+f).value='');
+  document.getElementById('f-status').value = 'watch';
+}
+function editStock(idx) {
+  editIndex = idx; const s = stocks[idx];
+  document.getElementById('f-name').value = s.name||'';
+  document.getElementById('f-code').value = s.code||'';
+  document.getElementById('f-price').value = s.price||'';
+  document.getElementById('f-target').value = s.target||'';
+  document.getElementById('f-change').value = s.change||'';
+  document.getElementById('f-status').value = s.status||'watch';
+  document.getElementById('f-industry').value = s.industry||'';
+  document.getElementById('f-score').value = s.score||'';
+  document.getElementById('f-reason').value = s.reason||'';
+  document.getElementById('f-tags').value = Array.isArray(s.tags) ? s.tags.join(', ') : s.tags||'';
+  openModal(true);
+}
+function saveStock() {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { showToast('请输入股票名称', 'err'); return; }
+  const stock = { name, date: new Date().toISOString().slice(0,10),
+    code: document.getElementById('f-code').value.trim(),
+    price: document.getElementById('f-price').value.trim(),
+    target: document.getElementById('f-target').value.trim(),
+    change: document.getElementById('f-change').value.trim(),
+    status: document.getElementById('f-status').value,
+    industry: document.getElementById('f-industry').value.trim(),
+    score: document.getElementById('f-score').value,
+    reason: document.getElementById('f-reason').value.trim(),
+    tags: document.getElementById('f-tags').value.split(',').map(t=>t.trim()).filter(Boolean) };
+  if (editIndex >= 0) stocks[editIndex] = stock; else stocks.push(stock);
+  save(); closeModal(); render();
+  showToast('✅ 已保存', 'ok');
+}
+function deleteStock() {
+  if (editIndex < 0) return;
+  if (!confirm('确定删除「' + stocks[editIndex].name + '」？')) return;
+  stocks.splice(editIndex, 1); save(); closeModal(); render(); showToast('已删除', 'ok');
+}
+function filterCards(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active'); render();
+}
+let tt;
+function showToast(msg, type='') {
+  clearTimeout(tt); const e = document.querySelector('.toast'); if (e) e.remove();
+  const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg;
+  document.body.appendChild(t); tt = setTimeout(() => t.remove(), 4000);
+}
+
+document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+document.getElementById('exportModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeExport(); });
+document.getElementById('importModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeImport(); });
+document.getElementById('dateDisplay').textContent = new Date().toLocaleDateString('zh-CN', {year:'numeric', month:'long', day:'numeric', weekday:'long'});
+
+// 手机端显示「导入」按钮改为文字粘贴方式
+if (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+  document.querySelector('.tool-btn:last-of-type').onclick = showImportModal;
+}
+
+load();
+render();
+</script>
+</body>
+</html>
